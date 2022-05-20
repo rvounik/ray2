@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>ray2</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-size: 16px;
+            background: #333;
+        }
+
+        canvas {
+            display: block;
+            margin: 100px auto;
+
+            image-rendering: optimizeSpeed;             /* Older versions of FF          */
+            image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+            image-rendering: -webkit-optimize-contrast; /* Safari                        */
+            image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
+            image-rendering: pixelated;                 /* Awesome future-browsers       */
+            -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+        }
+    </style>
+</head>
+<body>
+<canvas id="canvas" width="800" height="600">Your browser does not support Canvas</canvas>
+<script type="module" src="./app.js"></script><!-- you need type="module" to be able to use import statements inside included js -->
+</body>
+</html>

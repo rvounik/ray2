@@ -7,10 +7,11 @@ const context = document.getElementById('canvas').getContext('2d');
 
 const state = {
     player: {
-        x: 300,
-        y: 560,
+        x: 400,
+        y: 700,
         rotation: 270,
-        speed: 3
+        speed: 3,
+        height: 25 // 0 would mean all wall segments are drawn above the horizon, 600 all below
     },
     upHeld: false,
     downHeld: false,
@@ -19,10 +20,13 @@ const state = {
     map: true,
     debug: true,
     lengths: [],
-    rayCount: 600,
-    showRays: false,
+    rayCount: 300,
+    showRays: true,
+    showIntersectionPoints: false,
+    textured: false,
     nextX: null,
-    nextY: null
+    nextY: null,
+    segmentHeight: 600 // height of wall segment if standing directly in front of it
 };
 
 const images = [
@@ -111,12 +115,14 @@ let mapData = [
 ];
 
 mapData = [
-    [0,0,0,0,0,0],
-    [0,0,0,0,0,0],
-    [0,0,1,1,0,0],
-    [0,0,1,1,0,0],
-    [0,0,0,0,0,0],
-    [0,0,0,0,0,0]
+    [1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,1],
+    [1,0,0,1,1,0,0,1],
+    [1,0,0,1,1,0,0,1],
+    [1,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1]
 ]
 
 // todo: rename to grid size or something
@@ -217,6 +223,8 @@ const validateGridCoords = (x, y) => {
 // normalise x, y to grid coordinates, with floor/ceil based on the direction the player is going
 const normaliseCoordsToGridCoords = (x, y, rotation) => {
     let nextX, nextY;
+
+    rotation = rotation % 360;
 
     if (rotation >= 0) {
         nextX = Math.ceil((x+1) / resolution) - 1;
@@ -345,6 +353,8 @@ const calculateRays = () => {
     // draw each ray, calculate how long it is before hitting the wall, store it in the state, so projection can use it
     for (let c = 0; c < state.rayCount; c++) {
 
+        let totalRayLength = 0;
+
         // reset old coordinates for this ray
         let oldCoords = [];
 
@@ -357,7 +367,7 @@ const calculateRays = () => {
         // get the coordinates where the previously calculated ray intersects the grid (these are the new coordinates)
         let newCoords = getNewCoordsForAngle(player.x, player.y, rayRotation, rayLength);
 
-        // debug: draw the intersection point
+        // debug: draw the active rectangle
         if (state.debug && state.map && state.showRays) {
             context.fillStyle = '#ff0000';
             context.fillRect(newCoords[0] / playerToMiniMapRatio - 2, newCoords[1] / playerToMiniMapRatio - 2, 4, 4);
@@ -366,8 +376,10 @@ const calculateRays = () => {
         // convert the new coordinates to coordinates that can be queried as map data to see if it has a wall
         let gridCoords = normaliseCoordsToGridCoords(newCoords[0], newCoords[1], rayRotation);
 
-        // keep adding the ray length to total ray length since that determines how far off the wall is
-        let totalRayLength = rayLength;
+        // first add the length of the first line to reach the grid edge todo: there is a bug here!
+        totalRayLength += rayLength;
+
+        // console.log('to reach the grid unit edge the ray needs to have a length of',rayLength)
 
         // keep calculating the new coordinates for the ray until it hits a wall or the map data is exhausted
         while(validateGridCoords(gridCoords[0], gridCoords[1]) && !getGridCollisionForCoords(gridCoords[0], gridCoords[1])) {
@@ -378,7 +390,7 @@ const calculateRays = () => {
             // calculate the ray length to the next intersection, starting from new coordinates
             rayLength = getRayLength(rayRotation, newCoords[0], newCoords[1]);
 
-            // calculate the new coordinates, starting not at player position, but at the previously stored newCoords
+            // calculate the new coordinates, starting not at player position, but at the previously stored coords (called oldCoords by now)
             newCoords = getNewCoordsForAngle(oldCoords[0], oldCoords[1], rayRotation, rayLength);
 
             if (oldCoords[0] === newCoords[0] && oldCoords[1] === newCoords[1]) {
@@ -394,17 +406,25 @@ const calculateRays = () => {
                 context.lineTo(newCoords[0] / playerToMiniMapRatio, newCoords[1] / playerToMiniMapRatio);
                 context.stroke();
 
-                // intersection point
-                context.fillStyle = '#0000ff';
-                context.fillRect(newCoords[0] / playerToMiniMapRatio - 2, newCoords[1] / playerToMiniMapRatio - 2, 4, 4);
+                // debug: draw intersection point
+                if (state.showIntersectionPoints) {
+                    context.fillStyle = '#0000ff';
+                    context.fillRect(newCoords[0] / playerToMiniMapRatio - 2, newCoords[1] / playerToMiniMapRatio - 2, 4, 4);
+                }
             }
 
-            // convert newCoords to coordinates that can be queried for wall detection / end of array
+            // convert newCoords to grid coordinates that can be queried for wall detection / end of array
             gridCoords = normaliseCoordsToGridCoords(newCoords[0], newCoords[1], rayRotation);
 
             // increment total ray length if still within map boundaries
             // todo: consider increasing the ray length with a very large number when !validateGridCoords
-            if (validateGridCoords(gridCoords[0], gridCoords[1]) && !getGridCollisionForCoords(gridCoords[0], gridCoords[1])) {
+            if (validateGridCoords(gridCoords[0], gridCoords[1])
+                // && !getGridCollisionForCoords(gridCoords[0], gridCoords[1]) todo: bug: you still want to add this to total ray length, even though it hit a wall? I think? loop will exit after this iteration anyway
+            ) {
+
+                // console.log('added ray length to totalRayLength (was:',totalRayLength,') to reach the next grid unit: ',rayLength)
+
+                // keep adding the ray length to total ray length since that determines how far off the wall is
                 totalRayLength += rayLength;
             }
         }
@@ -436,39 +456,49 @@ const drawProjection = () => {
         // context.stroke(); // lost track of the rendering? enable this and render fewer columns
         context.clip();
 
-        // center point is middle of screen
-        context.translate(0, 300);
-
         const distanceToWall = state.lengths[a];
 
-        // determines how soon the texture loses height in the distance. 1 is default but 1.1 or 1.2 looks more realistic
-        context.scale(1 - (distanceToWall / 400), 1 - (distanceToWall / 400));
+        if (state.textured) {
 
-        // offset x pos to middle of the texture with an offset of a (so texture renders correct when standing in front)
-        // let xDist = a * (a - ((distanceToWall * distanceToWall) / perspectiveCorrection));
-        // let xDist =  (a - ((distanceToWall * distanceToWall) / 100));
-        // let xDist = a - distanceToWall;
-        let xDist = 0  - ((distanceToWall * distanceToWall) / 10);
+            // center point is middle of screen
+            context.translate(0, 300);
 
-        // should be half the texture height, you can play around with it to adjust the camera height
-        const yDist = 433;
-        xDist = 0;
+            // determines how soon the texture loses height in the distance. 1 is default but 1.1 or 1.2 looks more realistic
+            context.scale(1 - (distanceToWall / 400), 1 - (distanceToWall / 400));
 
-        // use remainder operator to ensure texture wrapping around
-        context.translate(xDist % 1300 - a, yDist);
+            // offset x pos to middle of the texture with an offset of a (so texture renders correct when standing in front)
+            // let xDist = a * (a - ((distanceToWall * distanceToWall) / perspectiveCorrection));
+            // let xDist =  (a - ((distanceToWall * distanceToWall) / 100));
+            // let xDist = a - distanceToWall;
+            let xDist = 0  - ((distanceToWall * distanceToWall) / 10);
 
-        // set some distance fogging
-        const foggingStrength = 1;
+            // should be half the texture height, you can play around with it to adjust the camera height
+            const yDist = 433;
+            xDist = 0;
 
-        context.globalAlpha = (foggingStrength * (1 - (distanceToWall / 400)));
+            // use remainder operator to ensure texture wrapping around
+            context.translate(xDist % 1300 - a, yDist);
 
-        // this extra check ensures the texture is not rendered 'negatively' for very short distances
-        if ((distanceToWall / 400) < 1) {
-            context.drawImage(
-                texture['img'],
-                0,
-                -866
-            );
+            // set some distance fogging
+            const foggingStrength = 1;
+
+            context.globalAlpha = state.textured ? (foggingStrength * (1 - (distanceToWall / 400))) : 1;
+
+            // this extra check ensures the texture is not rendered 'negatively' for very short distances
+            if ((distanceToWall / 400) < 1) {
+                if (state.textured) {
+                    context.drawImage(
+                        texture['img'],
+                        0,
+                        -866
+                    );
+                }
+            }
+
+        } else {
+            context.globalAlpha = distanceToWall > 800 ? 0 : 1 - (distanceToWall / 800);
+            context.fillStyle = '#cccccc';
+            context.fillRect(0, state.player.height + (distanceToWall / 25), 100, 100 * (state.segmentHeight / distanceToWall));
         }
 
         context.restore();
@@ -492,7 +522,7 @@ const update = () => {
     calculateRays();
 
     requestAnimationFrame(() => {
-        update();
+       update();
     });
 };
 

@@ -11,7 +11,7 @@ const state = {
         y: 700,
         rotation: 270,
         speed: 3,
-        height: 25 // 0 would mean all wall segments are drawn above the horizon, 600 all below
+        height: 300 // 0 would mean all wall segments are drawn above the horizon, 600 all below
     },
     upHeld: false,
     downHeld: false,
@@ -20,19 +20,24 @@ const state = {
     map: true,
     debug: true,
     lengths: [],
-    rayCount: 300,
+    rayCount: 200,
     showRays: true,
     showIntersectionPoints: false,
     textured: false,
     nextX: null,
     nextY: null,
-    segmentHeight: 600 // height of wall segment if standing directly in front of it
+    segmentHeight: 600, // height of wall segment if standing directly in front of it
+    fov: 55
 };
 
 const images = [
     {
         id: 'texture',
         src: 'assets/images/texture.jpeg'
+    },
+    {
+        id: 'background',
+        src: 'assets/images/background.png'
     }
 ];
 
@@ -117,9 +122,9 @@ let mapData = [
 mapData = [
     [1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,0,1],
+    [1,0,0,1,1,1,0,1],
     [1,0,0,0,0,0,0,1],
-    [1,0,0,1,1,0,0,1],
-    [1,0,0,1,1,0,0,1],
+    [1,0,0,1,0,1,0,1],
     [1,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1]
@@ -127,7 +132,6 @@ mapData = [
 
 // todo: rename to grid size or something
 let resolution = 100; // if the map is 28 units wide, this translates to 2800 pixels on screen
-let fov = 80; // this means each pixel of 800px in width shows an angle of 800/80 = 10 degrees
 
 // this should not have any effect on the rendered projection
 const miniMapResolution = 30;
@@ -337,13 +341,12 @@ const getRayLength = (rayRotation, x, y) => {
 
 const calculateRays = () => {
     const player = state.player;
-    const fov = 80; // set field of vision: how wide the view is
-    const rayIteration = fov / state.rayCount; // sets how many "degrees" each ray is covering
+    const rayIteration = state.fov / state.rayCount; // sets how many "degrees" each ray is covering
 
     // since the rays and player and line of sight are drawn on the map, this ratio stores by how much it should be divided to match its dimensions
     const playerToMiniMapRatio = getPlayerToMiniMapRatio();
 
-    let firstRayRot = player.rotation - (fov / 2);
+    let firstRayRot = player.rotation - (state.fov / 2);
 
     firstRayRot = firstRayRot < 0 ? firstRayRot + 360 : firstRayRot;
 
@@ -417,14 +420,7 @@ const calculateRays = () => {
             gridCoords = normaliseCoordsToGridCoords(newCoords[0], newCoords[1], rayRotation);
 
             // increment total ray length if still within map boundaries
-            // todo: consider increasing the ray length with a very large number when !validateGridCoords
-            if (validateGridCoords(gridCoords[0], gridCoords[1])
-                // && !getGridCollisionForCoords(gridCoords[0], gridCoords[1]) todo: bug: you still want to add this to total ray length, even though it hit a wall? I think? loop will exit after this iteration anyway
-            ) {
-
-                // console.log('added ray length to totalRayLength (was:',totalRayLength,') to reach the next grid unit: ',rayLength)
-
-                // keep adding the ray length to total ray length since that determines how far off the wall is
+            if (validateGridCoords(gridCoords[0], gridCoords[1])) {
                 totalRayLength += rayLength;
             }
         }
@@ -433,13 +429,25 @@ const calculateRays = () => {
     }
 };
 
+/* to prevent fish eye effect the distance to projection should be used rather than distance to wall */
+const convertRayLengthToProjectionRayLength = (rayLength, rayIndex) => {
+    const degreesToPlayerCenter = state.player.rotation - (state.fov / 2) + (rayIndex * (state.fov / state.rayCount));
+    const angleDiff = degreesToPlayerCenter - state.player.rotation;
+
+    return Math.cos(toRadians(angleDiff)) * rayLength;
+}
+
+const drawBackground = () => {
+    const background = images.filter(img => img.id === 'background')[0];
+
+    context.drawImage(
+        background['img'],
+        0,
+        0
+    );
+}
+
 const drawProjection = () => {
-
-    // extract the image object
-    const texture = images.filter(img => img.id === 'texture')[0];
-
-    // a little magic number for perspective correction of the texture when rendered into the z axis
-    const perspectiveCorrection = 100;
 
     for (let a = 0; a < state.rayCount; a++) {
         context.save();
@@ -453,12 +461,15 @@ const drawProjection = () => {
         context.lineTo((800 / state.rayCount), 600);
         context.lineTo(0, 600);
         context.lineTo(0, 0);
-        // context.stroke(); // lost track of the rendering? enable this and render fewer columns
         context.clip();
 
         const distanceToWall = state.lengths[a];
+        const distanceToProjection = convertRayLengthToProjectionRayLength(distanceToWall, a);
+
+        const ph = 1 + state.player.height / 2;
 
         if (state.textured) {
+            const texture = images.filter(img => img.id === 'texture')[0];
 
             // center point is middle of screen
             context.translate(0, 300);
@@ -496,10 +507,26 @@ const drawProjection = () => {
             }
 
         } else {
-            context.globalAlpha = distanceToWall > 800 ? 0 : 1 - (distanceToWall / 800);
-            context.fillStyle = '#cccccc';
-            context.fillRect(0, state.player.height + (distanceToWall / 25), 100, 100 * (state.segmentHeight / distanceToWall));
+            context.globalAlpha = distanceToProjection > 400 ? 0 : 1 - (distanceToProjection / 400);
+            context.fillStyle = '#9999bb';
+            // context.fillRect(0, state.player.height + (distanceToProjection / 25), 100, 100 * (state.segmentHeight / distanceToProjection));
+            context.fillRect(0, (state.player.height/2) + (distanceToProjection / 25), 100, 100 * (state.segmentHeight / distanceToProjection));
+            // context.fillRect(
+            //     0,
+            //     ph / (distanceToProjection / 10),
+            //     100,
+            //     state.segmentHeight / (distanceToProjection / 10)
+            // );
         }
+
+        /*
+
+        player.height:
+
+        600 -> 300
+
+
+         */
 
         context.restore();
     }
@@ -511,6 +538,7 @@ const drawProjection = () => {
 const update = () => {
     helpers.Canvas.clearCanvas(context, '#ffffff');
 
+    drawBackground();
     drawProjection();
 
     handleKeyPresses();

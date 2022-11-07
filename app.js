@@ -20,7 +20,7 @@ const state = {
     map: true,
     debug: true,
     lengths: [],
-    rayCount: 200,
+    rayCount: 800,
     showRays: true,
     showIntersectionPoints: false,
     textured: false,
@@ -124,7 +124,7 @@ mapData = [
     [1,0,0,0,0,0,0,1],
     [1,0,0,1,1,1,0,1],
     [1,0,0,0,0,0,0,1],
-    [1,0,0,1,0,1,0,1],
+    [1,0,0,1,1,0,0,1],
     [1,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1]
@@ -466,7 +466,7 @@ const drawProjection = () => {
         const distanceToWall = state.lengths[a];
         const distanceToProjection = convertRayLengthToProjectionRayLength(distanceToWall, a);
 
-        const ph = 1 + state.player.height / 2;
+        // const ph = 1 + state.player.height / 2;
 
         if (state.textured) {
             const texture = images.filter(img => img.id === 'texture')[0];
@@ -507,26 +507,20 @@ const drawProjection = () => {
             }
 
         } else {
-            context.globalAlpha = distanceToProjection > 400 ? 0 : 1 - (distanceToProjection / 400);
+            context.globalAlpha = distanceToProjection > 600 ? 0 : 1 - (distanceToProjection / 600);
             context.fillStyle = '#9999bb';
-            // context.fillRect(0, state.player.height + (distanceToProjection / 25), 100, 100 * (state.segmentHeight / distanceToProjection));
-            context.fillRect(0, (state.player.height/2) + (distanceToProjection / 25), 100, 100 * (state.segmentHeight / distanceToProjection));
-            // context.fillRect(
-            //     0,
-            //     ph / (distanceToProjection / 10),
-            //     100,
-            //     state.segmentHeight / (distanceToProjection / 10)
-            // );
+
+            const wallHeight = 300 * (100 / distanceToProjection);
+
+            if (distanceToProjection < 600) {
+                context.fillRect(
+                    0,
+                    (600 - wallHeight) / 2,
+                    800 / state.rayCount,
+                    wallHeight
+                );
+            }
         }
-
-        /*
-
-        player.height:
-
-        600 -> 300
-
-
-         */
 
         context.restore();
     }

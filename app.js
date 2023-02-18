@@ -7,9 +7,9 @@ const context = document.getElementById('canvas').getContext('2d');
 
 const state = {
     player: {
-        x: 400,
-        y: 700,
-        rotation: 270,
+        x: 250,
+        y: 550,
+        rotation: 300,
         speed: 3,
         height: 300 // 0 would mean all wall segments are drawn above the horizon, 600 all below
     },
@@ -20,15 +20,19 @@ const state = {
     map: true,
     debug: true,
     lengths: [],
-    rayCount: 800,
+    rayCount: 400,
     showRays: true,
-    showIntersectionPoints: false,
-    textured: false,
+    showIntersectionPoints: true,
+    textured: true,
     nextX: null,
     nextY: null,
     segmentHeight: 600, // height of wall segment if standing directly in front of it
     fov: 55
 };
+
+if (!Number.isInteger(800 / state.rayCount)) {
+    console.log('warning: segment width is a float')
+}
 
 const images = [
     {
@@ -314,7 +318,7 @@ const handleKeyPresses = () => {
     }
 };
 
-const getRayLength = (rayRotation, x, y) => {
+const getRayLength = (rayRotation, x, y, invert = false) => {
     let angle, remainderX, remainderY, horizontalRay, verticalRay;
 
     // normalise the rotation (always between 0 and 360)
@@ -336,7 +340,17 @@ const getRayLength = (rayRotation, x, y) => {
     verticalRay   = (rotation >= 180 && rotation < 270) || rotation < 90 ? remainderY / Math.cos(toRadians(90 - angle)) : remainderY / Math.cos(toRadians(angle));
 
     // return the shortest ray length of the two calculated triangles (beforehand it is unknown which "side" of the grid unit it will cut through)
-    return horizontalRay < verticalRay ? horizontalRay : verticalRay;
+    // return horizontalRay < verticalRay ? horizontalRay : verticalRay;
+
+    // if (invert) {
+    //     return horizontalRay > verticalRay
+    //         ? { length: horizontalRay, color: '#00ff00' }
+    //         : { length: verticalRay, color: '#ff0000' } ;
+    // }
+
+    return horizontalRay < verticalRay
+        ? { length: horizontalRay, color: '#ff0000' }
+        : { length: verticalRay, color: '#00ff00' } ;
 };
 
 const calculateRays = () => {
@@ -367,7 +381,10 @@ const calculateRays = () => {
         // get the length of the ray from player coordinates to edge of grid unit
         let rayLength = getRayLength(rayRotation, player.x, player.y);
 
+        rayLength = rayLength.length;
+
         // get the coordinates where the previously calculated ray intersects the grid (these are the new coordinates)
+        // todo: it either goes wrong here
         let newCoords = getNewCoordsForAngle(player.x, player.y, rayRotation, rayLength);
 
         // debug: draw the active rectangle
@@ -377,10 +394,19 @@ const calculateRays = () => {
         }
 
         // convert the new coordinates to coordinates that can be queried as map data to see if it has a wall
+        // todo: or here
         let gridCoords = normaliseCoordsToGridCoords(newCoords[0], newCoords[1], rayRotation);
 
-        // first add the length of the first line to reach the grid edge todo: there is a bug here!
-        totalRayLength += rayLength;
+        if (!getGridCollisionForCoords(gridCoords[0], gridCoords[1])) {
+            // first add the length of the first line to reach the grid edge todo: there is a bug here!
+            totalRayLength = rayLength;
+        } else {
+            let rayLength = getRayLength(rayRotation, player.x, player.y, true);
+
+            rayLength = rayLength.length;
+
+            totalRayLength = rayLength;
+        }
 
         // console.log('to reach the grid unit edge the ray needs to have a length of',rayLength)
 
@@ -391,7 +417,7 @@ const calculateRays = () => {
             oldCoords = newCoords;
 
             // calculate the ray length to the next intersection, starting from new coordinates
-            rayLength = getRayLength(rayRotation, newCoords[0], newCoords[1]);
+            rayLength = getRayLength(rayRotation, newCoords[0], newCoords[1]).length;
 
             // calculate the new coordinates, starting not at player position, but at the previously stored coords (called oldCoords by now)
             newCoords = getNewCoordsForAngle(oldCoords[0], oldCoords[1], rayRotation, rayLength);
@@ -400,21 +426,23 @@ const calculateRays = () => {
                 console.log('error: newCoords === oldCoords, rayLength:', rayLength);
             }
 
-            // debug: draw the ray
-            if (state.debug && state.map && state.showRays) {
-                context.strokeStyle = '#ff0000';
-                context.lineWidth = '1';
-                context.beginPath();
-                context.moveTo(oldCoords[0] / playerToMiniMapRatio, oldCoords[1] / playerToMiniMapRatio);
-                context.lineTo(newCoords[0] / playerToMiniMapRatio, newCoords[1] / playerToMiniMapRatio);
-                context.stroke();
+            // if (c > 609 && c < 627) {
+                // debug: draw the ray
+                if (state.debug && state.map && state.showRays) {
+                    context.strokeStyle = '#ff0000';
+                    context.lineWidth = '1';
+                    context.beginPath();
+                    context.moveTo(oldCoords[0] / playerToMiniMapRatio, oldCoords[1] / playerToMiniMapRatio);
+                    context.lineTo(newCoords[0] / playerToMiniMapRatio, newCoords[1] / playerToMiniMapRatio);
+                    context.stroke();
 
-                // debug: draw intersection point
-                if (state.showIntersectionPoints) {
-                    context.fillStyle = '#0000ff';
-                    context.fillRect(newCoords[0] / playerToMiniMapRatio - 2, newCoords[1] / playerToMiniMapRatio - 2, 4, 4);
+                    // debug: draw intersection point
+                    if (state.showIntersectionPoints) {
+                        context.fillStyle = '#0000ff';
+                        context.fillRect(newCoords[0] / playerToMiniMapRatio - 2, newCoords[1] / playerToMiniMapRatio - 2, 4, 4);
+                    }
                 }
-            }
+            // }
 
             // convert newCoords to grid coordinates that can be queried for wall detection / end of array
             gridCoords = normaliseCoordsToGridCoords(newCoords[0], newCoords[1], rayRotation);
@@ -425,7 +453,9 @@ const calculateRays = () => {
             }
         }
 
-        state.lengths.push(totalRayLength);
+        const testcol = getRayLength(rayRotation, newCoords[0], newCoords[1]);
+
+        state.lengths.push({ length: totalRayLength, color: testcol.color });
     }
 };
 
@@ -463,62 +493,70 @@ const drawProjection = () => {
         context.lineTo(0, 0);
         context.clip();
 
-        const distanceToWall = state.lengths[a];
-        const distanceToProjection = convertRayLengthToProjectionRayLength(distanceToWall, a);
+        if (state.lengths.length) {
 
-        // const ph = 1 + state.player.height / 2;
+            const distanceToWall = state.lengths[a].length;
+            // const fillColor = state.lengths[a].color;
+            const distanceToProjection = convertRayLengthToProjectionRayLength(distanceToWall, a);
 
-        if (state.textured) {
-            const texture = images.filter(img => img.id === 'texture')[0];
+            // const ph = 1 + state.player.height / 2;
 
-            // center point is middle of screen
-            context.translate(0, 300);
+            if (state.textured) {
+                const texture = images.filter(img => img.id === 'texture')[0];
 
-            // determines how soon the texture loses height in the distance. 1 is default but 1.1 or 1.2 looks more realistic
-            context.scale(1 - (distanceToWall / 400), 1 - (distanceToWall / 400));
+                // center point is middle of screen
+                context.translate(0, 300);
 
-            // offset x pos to middle of the texture with an offset of a (so texture renders correct when standing in front)
-            // let xDist = a * (a - ((distanceToWall * distanceToWall) / perspectiveCorrection));
-            // let xDist =  (a - ((distanceToWall * distanceToWall) / 100));
-            // let xDist = a - distanceToWall;
-            let xDist = 0  - ((distanceToWall * distanceToWall) / 10);
+                // determines how soon the texture loses height in the distance. 1 is default but 1.1 or 1.2 looks more realistic
+                context.scale(1 - (distanceToWall / 400), 1 - (distanceToWall / 400));
 
-            // should be half the texture height, you can play around with it to adjust the camera height
-            const yDist = 433;
-            xDist = 0;
+                // offset x pos to middle of the texture with an offset of a (so texture renders correct when standing in front)
+                // let xDist = a * (a - ((distanceToWall * distanceToWall) / perspectiveCorrection));
+                // let xDist =  (a - ((distanceToWall * distanceToWall) / 100));
+                // let xDist = a - distanceToWall;
+                let xDist = 0 - ((distanceToWall * distanceToWall) / 10);
 
-            // use remainder operator to ensure texture wrapping around
-            context.translate(xDist % 1300 - a, yDist);
+                // should be half the texture height, you can play around with it to adjust the camera height
+                const yDist = 433;
+                xDist = 0;
 
-            // set some distance fogging
-            const foggingStrength = 1;
+                // use remainder operator to ensure texture wrapping around
+                context.translate(xDist % 1300 - a, yDist);
 
-            context.globalAlpha = state.textured ? (foggingStrength * (1 - (distanceToWall / 400))) : 1;
+                // set some distance fogging
+                const foggingStrength = 1;
 
-            // this extra check ensures the texture is not rendered 'negatively' for very short distances
-            if ((distanceToWall / 400) < 1) {
-                if (state.textured) {
-                    context.drawImage(
-                        texture['img'],
+                context.globalAlpha = state.textured ? (foggingStrength * (1 - (distanceToWall / 400))) : 1;
+
+                // this extra check ensures the texture is not rendered 'negatively' for very short distances
+                if ((distanceToWall / 400) < 1) {
+                    if (state.textured) {
+                        context.drawImage(
+                            texture['img'],
+                            0,
+                            -866
+                        );
+                    }
+                }
+
+            } else {
+                context.globalAlpha = distanceToProjection > 600 ? 0 : 1 - (distanceToProjection / 600);
+                context.fillStyle = '#9999bb'; //fillColor; // '#9999bb';
+
+                const wallHeight = 300 * (100 / distanceToProjection);
+
+                if (distanceToProjection < 600) {
+                    context.fillRect(
                         0,
-                        -866
+                        (600 - wallHeight) / 2, // just align vertically. todo: ensure player.height is respected here
+                        800 / state.rayCount,
+                        wallHeight
                     );
                 }
-            }
 
-        } else {
-            context.globalAlpha = distanceToProjection > 600 ? 0 : 1 - (distanceToProjection / 600);
-            context.fillStyle = '#9999bb';
-
-            const wallHeight = 300 * (100 / distanceToProjection);
-
-            if (distanceToProjection < 600) {
-                context.fillRect(
-                    0,
-                    (600 - wallHeight) / 2,
-                    800 / state.rayCount,
-                    wallHeight
-                );
+                context.font = "8px Monospace";
+                context.fillStyle = "#000000";
+                context.fillText(`${a}`, 0, 590);
             }
         }
 
@@ -533,6 +571,7 @@ const update = () => {
     helpers.Canvas.clearCanvas(context, '#ffffff');
 
     drawBackground();
+    calculateRays();
     drawProjection();
 
     handleKeyPresses();
@@ -541,7 +580,6 @@ const update = () => {
         drawMiniMap();
     }
 
-    calculateRays();
 
     requestAnimationFrame(() => {
        update();
